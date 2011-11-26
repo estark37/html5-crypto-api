@@ -1,0 +1,463 @@
+<html>
+<head>
+</head>
+<script src="../src/add_event_listener.js" type="text/javascript"></script>
+<script src="../src/vtpm_const.js" type="text/javascript"></script>
+<script src="../src/vtpm_user.js" type="text/javascript"></script>
+
+<script type="text/javascript">
+
+var secureui;
+
+if (window.document.addEventListener) {
+  window.document.addEventListener("secureUIVisible", onShowSecureUI, true);
+  window.document.addEventListener("secureUIInvisible", onHideSecureUI, true);
+} else if (window.attachEvent) {
+  window.attachEvent("secureUIVisible", onShowSecureUI);
+  window.attachEvent("secureUIInvisible", onHideSecureUI);
+}
+
+function onShowSecureUI() {
+  secureui.style.display="block";
+}
+
+function onHideSecureUI() {
+  secureui.style.display="none";
+}
+
+/*
+A public key from another origin, generated using setup.html.
+Expect one test to fail if you don't update this value.
+*/
+var OTHER_ORIGIN_PK = "ceaba506e1ac56359d81f2ef2b06861a293ac1c6617a873c093372099066f7f9a0a5069ed364a5ca4abc055eb2e2dae8";
+
+/*
+Generate some dates for use in creating policies.
+*/
+var now = new Date();
+var earlier = new Date(now);
+var later = new Date(now);
+earlier.setMinutes(now.getMinutes()-60);
+later.setMinutes(now.getMinutes()+60);
+
+/*
+Print a test result to the "Other Tests" area
+*/
+function addResult(testName, result) {
+  var status = document.getElementById("status");
+  status.innerHTML += "<br />" + testName + ": " + (result ? "<span style='color:green'>pass</span>" : "<span style='color:red'>FAIL</span>");
+}
+
+/*
+Print a test result to the "Sanity Tests" area
+*/
+function addSanityTestResult(testName, result) {
+  var status = document.getElementById("sanity");
+  status.innerHTML += "<br />" + testName + ": " + (result ? "<span style='color:green'>pass</span>" : "<span style='color:red'>FAIL</span>");
+}
+
+function startTests() {
+  var vtpm = window.crypto.getVTPM();
+  vtpm.style.display = "none";
+  vtpm.width = "100%";
+  vtpm.height = 40;
+  vtpm.scrolling = "no";
+  secureui = vtpm;
+  testSanity();
+  testPolicy();
+  testEvictionAndInstallation();
+  testOriginViolations();
+  testCertification();
+}
+
+/*
+Make sure that we can decrypt what we encrypt, verify what we sign, etc.
+This function just kicks off these tests by generating a valid policy.
+*/
+function testSanity() {
+  window.crypto.generatePolicy(earlier, later,
+    vtpmKeyPolicy.usage.dataEncipherment | vtpmKeyPolicy.usage.digitalSignature | vtpmKeyPolicy.usage.keyCertSign,
+    onPolicyGenSanity);
+}
+
+/*
+Once the policy for sanity tests is generated, generate a valid
+key pair.
+*/
+function onPolicyGenSanity(policy) {
+  window.crypto.generateKeyPair(policy, onKeyPairGenSanity(policy));
+}
+
+/*
+Once we have a key pair for sanity tests, encrypt something,
+sign something, and generate another key pair for some more
+sanity tests.
+*/
+function onKeyPairGenSanity(policy) {
+  return function(pk) {
+  var sanityPt = "Harry Potter is a series of seven fantasy novels written by the British author J. K. Rowling. The books chronicle \
+the adventures of the adolescent wizard Harry Potter and his best friends Ron Weasley and Hermione Granger, all of whom are \
+students at Hogwarts School of Witchcraft and Wizardry. The main story arc concerns Harry's quest to overcome the evil dark wizard \
+Lord Voldemort, whose aim is to subjugate non-magical people, conquer the wizarding world, and destroy all those who stand in his way, \
+especially Harry Potter.";
+
+  // encrypt something, then decrypt it
+  window.crypto.encrypt(pk, sanityPt, onEncryptSanity(pk, sanityPt));
+
+  // sign something, then verify it
+  window.crypto.sign(pk, sanityPt, onSignSanity(pk, sanityPt));
+
+  // To signcrypt something or certify a public key, we need another key
+  window.crypto.generateKeyPair(policy, onNextKeyPairGen(pk, sanityPt));
+};
+}
+
+/*
+Once we have two key pairs, signcrypt something and certify one of the keys.
+*/
+function onNextKeyPairGen(rpk, sanityPt) {
+  return function(spk) {
+    window.crypto.signcrypt(rpk, spk, sanityPt, onSigncryptSanity(rpk, spk, sanityPt));
+    window.crypto.certifyPublicKey(rpk, spk, onCertifySanity(rpk, spk));
+  };
+}
+
+/*
+Make sure that the cert for the public key verifies.
+*/
+function onCertifySanity(pk1, pk2) {
+  return function(cert) {
+    window.crypto.verifyPublicKeyCert(pk1, pk2, cert, onVerifyCertSanity);
+  };
+}
+
+function onVerifyCertSanity(verify) {
+  addSanityTestResult("Certify/verify public key sanity test", verify);
+}
+
+/*
+Make sure that the encryption decrypts.
+*/
+function onEncryptSanity(pk, sanityPt) {
+  return function(ct) {
+    window.crypto.decrypt(pk, ct, onDecryptSanity(sanityPt));
+  };
+}
+
+function onDecryptSanity(sanityPt) {
+  return function(pt) {
+    addSanityTestResult("Encryption/decryption sanity test", (pt.valid && pt.data == sanityPt));
+  };
+}
+
+/*
+Make sure that the signature verifies.
+*/
+function onSignSanity(pk, sanityPt) {
+  return function(sig) {
+    window.crypto.verify(pk, sig.data, sanityPt, onVerifySanity);
+  };
+}
+
+function onVerifySanity(verify) {
+  addSanityTestResult("Sign/verify sanity test", verify);
+}
+
+/*
+Make sure that the signcryption verifies and decrypts.
+*/
+function onSigncryptSanity(rpk, spk, sanityPt) {
+  return function(ct) {
+    window.crypto.verifydecrypt(rpk, spk, ct, onVerifydecryptSanity(sanityPt));
+  };
+}
+
+function onVerifydecryptSanity(sanityPt) {
+  return function(pt) {
+    console.log(pt);
+    addSanityTestResult("Signcrypt/unsigncrypt sanity test", pt != "");
+  };
+}
+
+
+/*
+Some tests to check that policy violations get caught, and that good
+(valid) policies can be used.
+This function generates these policies, and the onPolicyGen callback
+runs the actual tests.
+*/
+function testPolicy() {
+
+  // expired key
+  window.crypto.generatePolicy(now, earlier, vtpmKeyPolicy.usage.dataEncipherment, onPolicyGen("expired"));
+
+  // a key that isn't valid yet
+  window.crypto.generatePolicy(later, later, vtpmKeyPolicy.usage.dataEncipherment, onPolicyGen("not_valid_yet"));
+
+  // a valid key
+  window.crypto.generatePolicy(earlier, later, vtpmKeyPolicy.usage.dataEncipherment, onPolicyGen("valid"));
+
+  // a key with no dataEncipherment bit
+  window.crypto.generatePolicy(earlier, later, vtpmKeyPolicy.usage.digitalSignature, onPolicyGen("no_data_encipherment"));
+
+  // a key with no digitalSignature bit
+  window.crypto.generatePolicy(earlier, later, vtpmKeyPolicy.usage.dataEncipherment, onPolicyGen("no_sign_bit"));
+
+  // try to getPolicy for a key from another origin
+  window.crypto.getPolicy(OTHER_ORIGIN_PK, onGetPolicy);
+
+}
+
+function onGetPolicy(policy) {
+  addResult("Get a policy for another origin's key", !policy);
+}
+
+/*
+Tests that we can certify a public key from another origin,
+but that we can't certify a public key that doesn't exist 
+in the vTPM. We also shouldn't be able to pass a public key
+to sign() and then get a positive result from verifyPublicKeyCert.
+*/
+function testCertification() {
+  // certify a public key from another origin (we should be able to)
+  window.crypto.generatePolicy(earlier, later, vtpmKeyPolicy.usage.keyCertSign,
+    onCertificationPolicyGen("certify_other_origin"));
+
+  // certify a public key that doesn't exist in the vTPM (we shouldn't be able to)
+  window.crypto.generatePolicy(earlier, later, vtpmKeyPolicy.usage.keyCertSign,
+    onCertificationPolicyGen("certify_imaginary_key"));
+
+  // try to use sign() to produce a cert; verifyPublicKeyCert() should return false
+  window.crypto.generatePolicy(earlier, later, vtpmKeyPolicy.usage.keyCertSign |
+    vtpmKeyPolicy.usage.digitalSignature, onCertificationPolicyGen("certify_with_sign"));
+}
+
+/*
+Tests that eviction and installation work as expected.
+*/
+function testEvictionAndInstallation() {
+  // create a key and then evict it; using the key should fail
+  window.crypto.generatePolicy(earlier, later,
+    vtpmKeyPolicy.usage.digitalSignature | vtpmKeyPolicy.usage.dataEncipherment,
+    onPolicyGen("evict_and_use"));
+
+  // create a key and then evict it and then install it and try to use it
+  window.crypto.generatePolicy(earlier, later,
+    vtpmKeyPolicy.usage.digitalSignature | vtpmKeyPolicy.usage.dataEncipherment,
+    onPolicyGen("evict_and_install"));
+}
+
+/*
+Test that one origin can't use or export keys generated by another
+origin.
+*/
+function testOriginViolations() {
+  // try to use a key that was generated by another origin
+  window.crypto.sign(OTHER_ORIGIN_PK, "test", onSign(OTHER_ORIGIN_PK, "bad_origin_sign"));
+
+  // try to export a key that was generated by another origin
+  window.crypto.getWrappedKeyPair(OTHER_ORIGIN_PK, onGetWrappedKeyPair("bad_origin_export"));
+}
+
+/*
+Once we have a policy for certification tests, generate a keypair.
+*/
+function onCertificationPolicyGen(desc) {
+  return function(policy) {
+    window.crypto.generateKeyPair(policy, onCertificationKeyPairGen(desc));
+  };
+}
+
+/*
+Once we have a key pair for certification tests, run the actual
+tests.
+*/
+function onCertificationKeyPairGen(desc) {
+  return function(pk) {
+    if (desc == "certify_other_origin") {
+      window.crypto.certifyPublicKey(pk, OTHER_ORIGIN_PK, onCertify(pk, desc));
+    } else if (desc == "certify_imaginary_key") {
+      window.crypto.certifyPublicKey(pk, "[0,0,0,0]", onCertify(pk, desc));
+    } else if (desc == "certify_with_sign") {
+      window.crypto.sign(pk, OTHER_ORIGIN_PK, onSignForCertify(pk));
+    }
+  };
+}
+
+function onCertify(pk, desc) {
+  return function(cert) {
+    if (desc == "certify_other_origin") {
+      if (cert.error)
+        addResult("Certify and verify a public key from another origin", !cert.error);
+      else
+        window.crypto.verifyPublicKeyCert(pk, OTHER_ORIGIN_PK, cert, onVerifyCert(desc));
+    } else if (desc == "certify_imaginary_key") {
+      addResult("Certify a public key that doesn't exist in the vTPM", cert.error);
+    }
+  };
+}
+
+function onVerifyCert(desc) {
+  return function(verify) {
+    if (desc == "certify_other_origin") {
+      addResult("Certify and verify a public key from another origin", verify);
+    }
+  };
+}
+
+function onSignForCertify(pk) {
+  return function(sig) {
+    sig.target = OTHER_ORIGIN_PK;
+    sig.sig = sig.data;
+    window.crypto.verifyPublicKeyCert(pk, OTHER_ORIGIN_PK, sig, onVerifyCertFromSign);
+  }
+}
+
+function onVerifyCertFromSign(verify) {
+  addResult("Certify a public key with sign() and verify it", !verify);
+}
+
+/*
+Once we have a policy for policy tests, generate a key pair.
+*/
+function onPolicyGen(desc) {
+  return function(policy) {
+    window.crypto.generateKeyPair(policy, onKeyPairGen(desc));
+  };
+}
+
+/*
+Once we have a key pair for policy tests, encrypt and decrypt
+something.
+*/
+function onKeyPairGen(desc) {
+  return function(pk) {
+    window.crypto.encrypt(pk, "test", onEncrypt(pk, desc));
+  };
+}
+
+function onEncrypt(pk, desc) {
+  return function(ct) {
+    window.crypto.decrypt(pk, ct, onDecrypt(pk, desc));
+  };
+}
+
+function onDecrypt(pk, desc) {
+  return function(pt) {
+    var test, pass;
+    switch (desc) {
+    case "expired":
+      test = "Expired key";
+      pass = pt.error;
+      break;
+    case "not_valid_yet":
+      test = "Key that isn't valid yet";
+      pass = pt.error;
+      break;
+    case "valid":
+      test = "Key with valid dates";
+      pass = !pt.error;
+      break;
+    case "no_data_encipherment":
+      test = "Decrypt with no dataEncipherment bit";
+      pass = pt.error;
+      break;
+    /*
+     * The following policy tests aren't finished after the decryption;
+     * we perform more operations.
+     */
+    case "no_sign_bit":
+      window.crypto.sign(pk, "test", onSign(pk, desc));
+      return;
+      break;
+    case "evict_and_use":
+      window.crypto.evictKeyPair(pk, onEvict(pk, desc));
+      return;
+      break;
+    case "evict_and_install":
+      window.crypto.getWrappedKeyPair(pk, onExport(pk, desc));
+      return;
+      break;
+    }
+
+    addResult(test, pass);
+  };
+}
+
+function onExport(pk, desc) {
+  return function(wrappedPkSk) {
+    if (desc == "evict_and_install") {
+      // now that we've exported the key pair, evict it
+      window.crypto.evictKeyPair(pk, onEvict(pk, desc, wrappedPkSk));
+    }
+  };
+}
+
+function onSign(pk, desc) {
+  return function(sig) {
+    var test, pass;
+    switch (desc) {
+    case "no_sign_bit":
+      test = "Sign with no digitalSignature bit";
+      pass = sig.error;
+      break;
+    case "evict_and_use":
+      test = "Sign with an evicted key pair";
+      pass = sig.error;
+      break;
+    case "bad_origin_sign":
+      test = "Sign with a key pair from another origin";
+      pass = sig.error;
+      break;
+    case "evict_and_install":
+      test = "Export a key pair, evict it, install it, and use it";
+      pass = !sig.error;
+      break;
+    }
+    addResult(test, pass);
+  };
+}
+
+function onEvict(pk, desc, wrappedPkSk) {
+  return function() {
+    if (desc == "evict_and_use") {
+      // now try to sign something with the evicted key pair
+      window.crypto.sign(pk, "test", onSign(pk, desc));
+    } else if (desc == "evict_and_install") {
+      // now that we've evicted it, reinstall it
+      window.crypto.installKeyPair(pk, wrappedPkSk.wrappedSk, onInstall(pk, desc));
+    }
+  };
+}
+
+function onInstall(pk, desc) {
+  return function() {
+    if (desc == "evict_and_install") {
+      // finally, try to use the key pair
+      window.crypto.sign(pk, "test", onSign(pk, desc));
+    }
+  };
+}
+
+function onGetWrappedKeyPair(desc) {
+  return function(wrappedPkSk) {
+    if (desc == "bad_origin_export") {
+      addResult("Export a key pair generated by another origin", wrappedPkSk.error);
+    }
+  };
+}
+
+
+
+
+
+</script>
+
+<body onload="window.crypto.setVTPMParent(document.getElementById('secureui')); startTests();" />
+<br />
+<div id="secureui"></div>
+<span id="sanity"><h4>Sanity Tests</h4></span><br />
+<span id="status"><h4>Other Tests</h4></span>
+<br /><span id="error"></span>
+</body>
+</html>

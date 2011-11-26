@@ -1,0 +1,192 @@
+<!--
+Copyright 2011 Google Inc. All Rights Reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+
+<html>
+<head>
+<title>My Safe Message System</title>
+</head>
+
+<script src="/site_media/add_event_listener.js" type="text/javascript"></script>
+<script src="/site_media/vtpm_const.js" type="text/javascript"></script>
+<script src="/site_media/vtpm_user.js" type="text/javascript"></script>
+
+<script type="text/javascript">
+
+var pk, myvtpm;
+
+function getMsg(id) {
+  // retrieve the message ct from the server
+  var req = new XMLHttpRequest();
+  req.onreadystatechange = function() {
+    if (req.readyState == 4 && req.status == 200) {
+      var ct = JSON.parse(decodeURIComponent(req.responseText));
+      window.crypto.decrypt(pk, ct, onDecrypt(id));
+    }
+  };
+  req.open("GET", "message?id=" + id, true);
+  req.send();
+}
+
+function onDecrypt(id) {
+  return function(pt) {
+    if (pt.valid && pt.data) {
+      document.getElementById("msg" + id).textContent = pt.data;
+    } else {
+      document.getElementById("status").textContent = "Message could not be decrypted.";
+    }
+  };
+}
+
+function onEncrypt(recipient, subject) {
+  return function(ct) {
+    var req = new XMLHttpRequest();
+    req.onreadystatechange = function() {
+      if (req.readyState == 4 && req.status == 200) {
+        document.getElementById("status").textContent = "Message sent.";
+        document.getElementById("send_msg").removeAttribute("disabled");
+      }
+    }
+    req.open("POST", "send", true);
+    req.send("recipient="+recipient+"&subject="+subject+"&msg="+JSON.stringify(ct));
+  };
+}
+
+function sendMsg() {
+  document.getElementById("send_msg").setAttribute("disabled", "true");
+  var recipient = document.getElementById("recipient").value;
+  var subject = document.getElementById("subject").value;
+  var body = document.getElementById("msg").value;
+
+  // Get the recipient's public key
+  var req = new XMLHttpRequest();
+  req.onreadystatechange = function() {
+    if (req.readyState == 4 && req.status == 200) {
+      var rpk = JSON.parse(req.responseText);
+      // Encrypt the message
+      window.crypto.encrypt(rpk, body, onEncrypt(recipient, subject));
+    }
+  }
+  req.open("GET", "publickey?recipient="+recipient, true);
+  req.send();
+}
+
+{% if profile and not profile.keypair %}
+function onExport(wrappedPkSk) {
+  // Send the key pair to the server to save
+  var req = new XMLHttpRequest();
+  req.open("POST", "keypair", true);
+  req.send("keypair=" + encodeURIComponent(JSON.stringify(wrappedPkSk)) + "&publickey=" + encodeURIComponent(JSON.stringify(wrappedPkSk.pk)));
+  document.getElementById("send_msg").removeAttribute("disabled");
+
+  pk = wrappedPkSk.pk;
+}
+
+function onKeyPairGen(pk) {
+  window.crypto.getWrappedKeyPair(pk, onExport);
+}
+
+function onPolicyGen(policy) {
+  window.crypto.generateKeyPair(policy, onKeyPairGen);
+}
+
+function onVtpmReady(vtpm) {
+  vtpm.style.display = "none";
+  myvtpm = vtpm;
+  var startDate = new Date();
+  var endDate = new Date();
+  endDate.setFullYear(endDate.getFullYear()+1);
+  window.crypto.generatePolicy(startDate, endDate, vtpmKeyPolicy.usage.dataEncipherment,
+    onPolicyGen);
+}
+
+function generateKeyPair() {
+  window.crypto.setVTPMParent(document.getElementById("vtpm_wrapper"));
+  onVtpmReady(window.crypto.getVTPM());
+}
+{% endif %}
+
+{% if profile and profile.keypair %}
+
+function onInstall() {
+  document.getElementById("send_msg").removeAttribute("disabled");
+}
+
+function onVtpmReady(wrappedSk, vtpm) {
+    vtpm.style.display = "none";
+    myvtpm = vtpm;
+    window.crypto.installKeyPair(pk, wrappedSk, onInstall);
+}
+
+function loadKeyPair() {
+  var wrappedPkSk = {% autoescape off %}{{ profile.keypair }}{% endautoescape %};
+  pk = wrappedPkSk.pk;
+  window.crypto.setVTPMParent(document.getElementById("vtpm_wrapper"));
+  onVtpmReady(wrappedPkSk.wrappedSk, window.crypto.getVTPM());
+}
+{% endif %}
+</script>
+
+<body {% if profile and not profile.keypair %} onload="generateKeyPair()" {% endif %}
+{% if profile and profile.keypair %}onload="loadKeyPair()"{% endif %}>
+{% if user %}
+
+<div id="content">
+  <p color="#005500" id="transfer_status"></p>
+  <p id="status"></p>
+  <p>Hello {{ user.username }}!</p>
+
+  <p>Here are your messages:</p>
+  <ul>
+    {% for m in msgs %}
+    <li> <a href="#" onclick="getMsg({{ m.id }})">{{ m.subject }}</a> (from {{ m.sender }})<br />
+      <span id="msg{{ m.id }}"></span>
+    </li>
+    {% endfor %}
+  </ul>
+
+  <p>Do you want to send a message?</p>
+  <form action="" method="POST">
+    Recipient username: <input type="text" name="recipient" id="recipient" /><br />
+    Subject: <input type="text" name="subject" id="subject" /><br />
+    Body:<br />
+    <textarea name="msg" id="msg"></textarea>
+    <br />
+    <input type="button" disabled="true" onclick="sendMsg()" name="send_msg" value="Send Message" id="send_msg" />
+  </form>
+
+  <p><small><a href="logout">Logout</a></small></p>
+</div>
+
+{% else %}
+  {% if attempted_login %}
+    <p>Invalid username or password.</p>
+  {% endif %}
+  <form action="" method="POST">
+    Username: <input type="text" name="username" /><br />
+    Password: <input type="password" name="password" /><br />
+    <input type="submit" name="login" value="Login" /> <input type="submit" name="register" value="No account? Register now" />
+  </form>
+{% endif %}
+
+<div id="sigprompt" style="display: none; width: 100%; background-color: rgba(0, 150, 255, 0.2); height: 100%; position: absolute; top: 0; left: 0;">
+<center>
+<div id="vtpm_wrapper"></div>
+</center>
+</div>
+
+</body>
+</html>

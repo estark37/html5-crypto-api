@@ -1,0 +1,67 @@
+########################
+## HTML5 Crypto Demos ##
+########################
+
+These demos illustrate use cases for the HTML5
+virtual TPM. These are prototypes and not to be
+used for any type of production code, anywhere,
+anytime. (For example, the bank demo doesn't do
+any server-side authorization checks for transfers,
+besides checking that the person performing the
+transfer is logged in. You can transfer $1000000
+to yourself if you want. There's also no
+input sanitization, CSRF protection, etc. etc. And
+of course the whole thing would need to be served 
+over HTTPS to be of any use to anyone.)
+
+To run the Django development server (assuming Django 
+is installed), first edit demos/settings.py. You should 
+only need to change DATABASE_NAME and TEMPLATE_DIRS to 
+point to your local repository. One more place to 
+update the path is the "site_media" path in urls.py.
+This should point to the directory where vtpm.js, etc. 
+reside.
+
+Now run
+> cd demos/
+> python manage.py syncdb
+> python manage.py runserver
+The server will now be running on localhost:8000, or you
+can run it on an external IP by running
+> python manage.py runserver <IP>:<PORT>
+
+To run:
+1.) The demos run on Django >= 1.1, Python >= 2.6.5, and sqlite3.
+The bank demo requires rhino for server-side signature verification.
+2.) First, install a vTPM (for example, on 
+http://localhost:80/html5crypto) by copying vtpm.html, vtpm.js, 
+vtpm_worker.js, sjcl.js, add_event_listener.js, and vtpm_const.js to 
+that location.
+Update VTPM_ORIGIN and VTPM_SRC at the top of vtpm_user.js.
+3.) Run django manage.py runserver in demos/.
+
+Navigate to http://localhost:8000/<DEMO_NAME> (for example,
+http://localhost:8000/bank).
+
+Demos:
+1.) To use the bank demo, create two accounts. Log into one
+and make a transfer to the other. (Each account has a balance
+of $20 when created.) The transfer will be signed with the
+account's key pair and verified on the server.
+2.) To use the safemsg demo, create two accounts. Log
+into one and send a message to the other. Log into the other
+and click the message to decrypt it in the browser. The
+encryption and decryption happens in the browser. The server
+holds on to each user's public key and wrapped key pair.
+
+The second demo requires a little more work to make it a
+compelling use case for the API. In particular, an XSS
+in index.html would allow an attacker to decrypt any of
+a user's messages. One way around this would be for the demo
+to have a third trusted domain that is solely responsible for
+decrypting ciphertexts (and is believed to have no XSS):
+the web page would pass the ciphertext to an iframe on this
+trusted domain, which would embed a vTPM for decrypting it.
+Once the vTPM decrypts the ciphertext, the iframe would be
+responsible for displaying it to the user, so that the outer
+web page never sees the plaintext.

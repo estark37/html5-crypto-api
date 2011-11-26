@@ -1,0 +1,193 @@
+<!--
+Copyright 2011 Google Inc. All Rights Reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+
+<html>
+<head>
+<title>My Secure Bank</title>
+</head>
+
+<script src="/site_media/add_event_listener.js" type="text/javascript"></script>
+<script src="/site_media/vtpm_const.js" type="text/javascript"></script>
+<script src="/site_media/vtpm_user.js" type="text/javascript"></script>
+
+<script type="text/javascript">
+
+var pk, myvtpm;
+
+if (window.document.addEventListener) {
+  window.document.addEventListener("secureUIVisible", onShowSecureUI, true);
+  window.document.addEventListener("secureUIInvisible", onHideSecureUI, true);
+} else if (window.attachEvent) {
+  window.attachEvent("secureUIVisible", onShowSecureUI);
+  window.attachEvent("secureUIInvisible", onHideSecureUI);
+}
+
+function onShowSecureUI() {
+  document.getElementById("sigprompt").style.display="block";
+  myvtpm.scrolling = "no";
+  myvtpm.style.borderWidth = 0;
+  myvtpm.height = 40;
+  myvtpm.style.display = "block";
+  myvtpm.style.width = "100%";
+  document.getElementById("content").style.opacity = "0.2";
+}
+
+function onHideSecureUI() {
+  document.getElementById("sigprompt").style.display = "none";
+  document.getElementById("content").style.opacity = "1.0";
+  myvtpm.style.display = "none";
+}
+
+function updateBalance() {
+  var req = new XMLHttpRequest();
+  req.onreadystatechange = function() {
+    if (req.readyState == 4 && req.status == 200) {
+      document.getElementById("balance").textContent = req.responseText;
+    }
+  }
+  req.open("GET", "balance");
+  req.send(null);
+}
+
+function onSign(to, stmt, amount) {
+return function(sig) {
+  document.getElementById("transfer").removeAttribute("disabled");
+  if (!sig.error) {
+    var req = new XMLHttpRequest();
+    req.onreadystatechange = function() {
+      if (req.readyState == 4 && req.status == 200) {
+        document.getElementById("recipient").value = "";
+        document.getElementById("amount").value = "";
+        document.getElementById("transfer_status").textContent = "Transfer complete.";
+        updateBalance();
+      } else if (req.readyState == 4 && req.status == 500) {
+        document.getElementById("transfer_status").textContent = "Transfer failed: unable to verify signature.";
+      }
+    };
+    req.open("POST", "transfer", true);
+    req.send("to=" + to + "&stmt=" + encodeURIComponent(stmt) + "&amount=" + amount + "&pk=" + pk + "&sig=" + JSON.stringify(sig.data));
+  }
+};
+}
+
+function signTransfer() {
+  document.getElementById("transfer").setAttribute("disabled", "");
+  var to = document.getElementById("recipient").value;
+  var amount = document.getElementById("amount").value;
+  var statement = "I, {{ user.username }}, want to transfer $" + amount +
+    " to " + to;
+  window.crypto.sign(pk, statement, onSign(to, statement, amount));
+}
+
+{% if profile and not profile.keypair %}
+function onExport(wrappedPkSk) {
+  // Send the key pair to the server to save
+  var req = new XMLHttpRequest();
+  req.open("POST", "keypair", true);
+  req.send("keypair=" + encodeURIComponent(JSON.stringify(wrappedPkSk)));
+
+  pk = wrappedPkSk.pk;
+
+  // Now that we have a key pair for signing, enable transfers
+  document.getElementById("transfer").removeAttribute("disabled");
+}
+
+function onKeyPairGen(pk) {
+  window.crypto.getWrappedKeyPair(pk, onExport);
+}
+
+function onPolicyGen(policy) {
+  window.crypto.generateKeyPair(policy, onKeyPairGen);
+}
+
+function onVtpmReady(vtpm) {
+  vtpm.style.display = "none";
+  myvtpm = vtpm;
+  var startDate = new Date();
+  var endDate = new Date();
+  endDate.setFullYear(endDate.getFullYear()+1);
+  window.crypto.generatePolicy(startDate, endDate, vtpmKeyPolicy.usage.digitalSignature | 
+    vtpmKeyPolicy.usage.requireSecureUIOnSigs, onPolicyGen);
+}
+
+function generateKeyPair() {
+  document.getElementById("transfer").setAttribute("disabled", "");
+  window.crypto.setVTPMParent(document.getElementById("vtpm_wrapper"));
+  onVtpmReady(window.crypto.getVTPM());
+}
+{% endif %}
+
+{% if profile and profile.keypair %}
+
+function onInstall() {
+  document.getElementById("transfer").removeAttribute("disabled");
+}
+
+function onVtpmReady(wrappedSk, vtpm) {
+  vtpm.style.display = "none";
+  myvtpm = vtpm;
+  window.crypto.installKeyPair(pk, wrappedSk, onInstall);
+}
+
+function loadKeyPair() {
+  document.getElementById("transfer").setAttribute("disabled", "");
+  var wrappedPkSk = {% autoescape off %}{{ profile.keypair }}{% endautoescape %};
+  pk = wrappedPkSk.pk;
+  window.crypto.setVTPMParent(document.getElementById("vtpm_wrapper"));
+  onVtpmReady(wrappedPkSk.wrappedSk, window.crypto.getVTPM());
+}
+{% endif %}
+</script>
+
+<body {% if profile and not profile.keypair %} onload="generateKeyPair()" {% endif %}
+{% if profile and profile.keypair %}onload="loadKeyPair()"{% endif %}>
+{% if user %}
+
+<div id="content">
+  <p color="#005500" id="transfer_status"></p>
+  <p>Hello {{ user.username }}!</p>
+
+  <p>Your account balance is: $<span id="balance">{{ profile.balance }}</span>.</p>
+
+  <p>Do you want to make a transfer?</p>
+  <form action="" method="POST">
+    Recipient username: <input type="text" name="recipient" id="recipient" /><br />
+    Amount: $<input type="text" size="2" id="amount" /><br />
+    <input type="button" onclick="signTransfer()" name="transfer" value="Transfer" id="transfer" />
+  </form>
+
+  <p><small><a href="logout">Logout</a></small></p>
+</div>
+
+{% else %}
+  {% if attempted_login %}
+    <p>Invalid username or password.</p>
+  {% endif %}
+  <form action="" method="POST">
+    Username: <input type="text" name="username" /><br />
+    Password: <input type="password" name="password" /><br />
+    <input type="submit" name="login" value="Login" /> <input type="submit" name="register" value="No account? Register now" />
+  </form>
+{% endif %}
+
+<div id="sigprompt" style="display: none; width: 100%; background-color: rgba(0, 150, 255, 0.2); height: 100%; position: absolute; top: 0; left: 0;">
+Please digitally sign the transfer to complete it:<br />
+<div id="vtpm_wrapper"></div>
+</div>
+
+</body>
+</html>

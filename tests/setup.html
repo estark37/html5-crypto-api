@@ -1,0 +1,42 @@
+<!--
+Run this script on a different origin than unit_tests/index.html
+will be run on. Paste the public key that is output into
+line 9 of unit_tests/index.html.
+
+This file sets up for a test of same-origin policies:
+the unit_tests/index.html shouldn't be able to use this
+origin's public key for vTPM operations.
+-->
+<html>
+<head>
+</head>
+
+<script src="../src/add_event_listener.js" type="text/javascript"></script>
+<script src="../src/vtpm_const.js" type="text/javascript"></script>
+<script src="../src/vtpm_user.js" type="text/javascript"></script>
+
+<script type="text/javascript">
+
+function go() {
+  var now = new Date(); // for use in generating policies
+  var later = new Date(now);
+  later.setFullYear(now.getFullYear()+1);
+
+  window.crypto.generatePolicy(now, later, vtpmKeyPolicy.usage.dataEncipherment | vtpmKeyPolicy.usage.digitalSignature,
+    onPolicyGen);
+}
+
+function onPolicyGen(policy) {
+  window.crypto.generateKeyPair(policy, onKeyPairGen);
+}
+
+function onKeyPairGen(pk) {
+  document.getElementById("status").innerHTML = "Paste the following public key into unit_tests/index.html:<br />" + pk;
+}
+
+</script>
+
+<body onload="window.crypto.init(document.body, go)">
+<span id="status"></span>
+</body>
+</html>

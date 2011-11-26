@@ -1,0 +1,125 @@
+########################
+### HTML5 Crypto API ###
+########################
+
+This project provides crypto operations in Javascript to a web application. 
+The crypto operations are implemented in pure HTML5 and Javascript by a 
+"virtual TPM" (VTPM), which is an iframe hosted on a separate, trusted 
+origin from the application. The origin separation of the VTPM from the 
+application ensures that a compromised application cannot leak the VTPM 
+secret key.
+
+The VTPM master key pair is currently stored in localStorage, so the 
+key pair is tied to the user's browser and machine.
+
+
+INSTALLING A VTPM:
+
+To run a vTPM, copy the following src/ files to a server (all files should 
+be in the same directory):
+
+- vtpm.html (displayed in an iframe, includes the other scripts)
+- vtpm.js (handles messages from the application to perform crypto operations)
+- vtpm_const.js (defines constants used in messages between frames)
+- vtpm_worker.js (does expensive crypto operations and sends results to vtpm.js)
+- vtpm_worker.html (included in an iframe to simulate a Worker in older browsers)
+- sjcl.js (underlying cryptographic library, with a few small modifications from
+the original)
+- add_event_listener.js (defines addEventListener for browsers that don't 
+already implement it)
+
+Before going further, src/vtpm_user.js needs to be updated to point to your VTPM: 
+change VTPM_ORIGIN and VTPM_SRC near the top of the file to be the origin and URL 
+of vtpm.html on your VTPM server.
+
+Even for testing purposes, the above VTPM files can NOT be hosted on a file:// URL 
+because file:// URLs do not have access to localStorage.
+
+CHECK THAT THE VTPM WORKS:
+
+check.html runs through basic operations to make sure that everything is set up 
+correctly. To run check.html:
+- On another origin (not your vtpm's origin), copy check.html, src/vtpm_const.js, 
+src/add_event_listener.js, and src/vtpm_user.js. You can run these files locally 
+on a file:// URL if you want. check.html assumes that the rest of the files are 
+in a src subdirectory; if this is not the case, then change the script tag sources 
+at the top of check.html.
+- Update VTPM_ORIGIN and VTPM_SRC near the top of src/vtpm_user.js to point to your 
+VTPM's origin and the URL to vtpm.html.
+- Navigate to check.html in a web browser. You will be prompted via the secure 
+UI for two signatures, one signcryption, and a public key certification. If you
+eventually end up with a "Done!" message and no JS errors, things are looking 
+good.
+
+TESTING:
+
+tests/index.html contains some more VTPM tests. To run these tests:
+- One of the tests requires a key from a different origin than the VTPM and the 
+tests. To set up this key, copy tests/setup.html, src/vtpm_const.js, 
+src/add_event_listener.js, and src/vtpm_user.js to a third origin (not the one 
+where you're running check.html, and not the one where you're running the vTPM). 
+Update VTPM_ORIGIN and VTPM_SRC of vtpm_user.js to point to your vtpm. Navigate 
+to setup.html in a web browser. Copy and paste the public key into 
+OTHER_ORIGIN_PK near the top of tests/index.html.
+- Create a tests directory in the directory where you put check.html, and
+copy tests/index.html into that directory.
+- Navigate to tests/index.html in a web browser. You should see all green
+pass messages and no JS errors. If you skipped the first step, then one test
+should fail ("Certify and verify a public key from another origin").
+
+Further instructions can be found in tests/README.
+
+DEMOS:
+
+The demos/ directory contains a Django project with two applications meant
+to demonstrate some use cases of the API. The demos/bank application allows
+users of the "bank" to transfer money to each other and to sign these transfers.
+The demos/safemsg application allows users to send messages to each other,
+encrypted with public keys that the server stores, where the messages are
+encrypted and decrypted in the browser. The safemsg application requires a bit
+more of a complex design to make it into an actual compelling use case, but
+it should serve as a starting point for designing such an application. More
+details about how to run these demos and what design changes would be needed
+to strengthen the safemsg application are in demos/README.txt.
+
+VTPM DESIGN:
+
+The vTPM is an iframe embedded in check.html. The page using a vTPM 
+(for example, the check.html demo page) is called the vTPM user.
+The vTPM user communicates with the vTPM via the postMessage API.
+
+To make an API call, the vTPM user (check.html) calls a window.crypto function 
+and specifies a callback. All API functions are performed asynchronously. 
+vtpm_user.js defines the window.crypto functions. Each window.crypto function 
+sends a message to the VTPM via a postMessage call. vtpm_user.js also defines 
+a handler for received messages. Each message received from
+postMessage call. vtpm_user.js also defines a handler for received 
+messages. The statuses used in the messages are defined in vtpm_const.js.
+
+The VTPM is initialized on the first API call. This involves generating the 
+VTPM master key or loading it up if it is already generated. Upon 
+initialization the VTPM also spawns a Worker thread to run vtpm_worker.js. 
+The VTPM communicates with its Worker thread via postMessage similarly to 
+how the VTPM user communicates with the VTPM.
+
+As an example, here's what happens when check.html calls 
+window.crypto.encrypt:
+1.) vtpm_user.js posts an encrypt message with the plaintext to the vTPM 
+(vtpm.js).
+2.) vtpm.js parses the received message. If the worker will need any data
+from localStorage to perform the computation, vtpm.js retrieves it and
+adds it to the arguments it received from vtpm_user.js. (For encryption,
+no localStorage data is needed, but for example, a decrypt() call requires
+the blob of data associated with the public key in localStorage.)
+3.) vtpm.js constructs an encrypt message whose arguments include
+the arguments it received from vtpm_user.js as well as any necessary
+localStorage data. vtpm.js posts this message to the worker.
+4.) The worker receives the message, parses it, performs the encryption,
+and constructs a message with the result to vtpm.js.
+5.) vtpm.js receives the message from the worker and parses it. If any data
+from the result needs to be stored in localStorage, vtpm.js does it before
+passing the result back to vtpm_user.js.
+6.) vtpm.js constructs a message with the resulting ciphertext and posts it 
+to vtpm_user.js.
+7.) vtpm_user.js receives the message, parses out the ciphertext, and calls
+the callback specified in the argument to window.crypto.encrypt.

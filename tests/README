@@ -1,0 +1,29 @@
+Instructions for running unit tests:
+
+These tests are set up to run on at least two
+origins. For example, you could have the vTPM on 
+http://localhost, and tests/index.html on a 
+file:// URL.
+
+You will also need vtpm_const.js, vtpm_user.js, 
+and add_event_listener.js on the same origin as 
+tests/index.html. By default, the tests look 
+for these Javascript files in a src directory 
+one directory above tests/index.html. If this 
+is not the case in your setup, then update the 
+script tag sources at the top of tests/index.html.
+
+If you want to run tests that involve the key pair same origin
+policy, then you need to run tests/setup.html on an origin
+other than the origin that runs tests/index.html. For example,
+you can run unit_tests/setup.html on http://localhost:8080.
+The setup.html origin will also require add_event_listener.js, 
+vtpm_user.js, and vtpm_const.js. As with tests/index.html,
+tests/setup.html assumes by default that these Javascript files 
+are in src/ one directory above setup.html. Navigate to setup.html 
+in a web browser. The output will be a public key, which you 
+should copy and paste into OTHER_ORIGIN_PK near the top of 
+tests/index.html.
+
+You can run tests/index.html in a web browser to see the
+test results.
