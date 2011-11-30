@@ -53,9 +53,7 @@ var foo = window.crypto;
     ERR_INVALID_ORIGIN = "Message received from non-vTPM origin",
 
     /*
-     *  Specifies the method name, required arguments, and optional arguments 
-     *  (if any) for each API call. A "cb" argument is implicit at the end of
-     *  reqArgs for each method, and a "errorCb" argument at the end of optArgs.
+     *  Specifies the method names of each window.crypto API call.
      */
     API = ["generatePolicy", "generateKeyPair", "evictKeyPair", "encrypt",
            "decrypt", "getPolicy", "getWrappedKeyPair", "sign", "verify",

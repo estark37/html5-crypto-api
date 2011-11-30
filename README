@@ -12,6 +12,7 @@ secret key.
 The VTPM master key pair is currently stored in localStorage, so the 
 key pair is tied to the user's browser and machine.
 
+Documentation for the API can be found at the end of this document.
 
 INSTALLING A VTPM:
 
@@ -123,3 +124,144 @@ passing the result back to vtpm_user.js.
 to vtpm_user.js.
 7.) vtpm_user.js receives the message, parses out the ciphertext, and calls
 the callback specified in the argument to window.crypto.encrypt.
+
+
+API DOCUMENTATION
+
+Secure UI:
+The VTPM fires a secureUIVisible event when the secure UI is shown (for 
+example, to ask for permission to sign some data), and a secureUIInvisible 
+event when the secure UI is hidden (for example, when the signature is 
+approved or denied). These events can be used by the VTPM user to show or
+hide the elements that contain the VTPM.
+
+
+window.crypto.generatePolicy(startDate, endDate, keyUsage, callback)
+-----
+Generates a policy that can be passed to window.crypto.generateKeyPair. 
+startDate and endDate are Javascript Date objects that specify a validity 
+window for the keypair. keyUsage specifies what operations (encryption, 
+signing, certifying other keys) the keypair is allowed to perform, and 
+whether the user must approve signatures via secure UI. keyUsage flags are 
+defined in vtpmKeyPolicy in vtpm_const.js.
+
+The argument to callback is a JSON object that represents the policy.
+
+window.crypto.generateKeyPair(policy, callback)
+-----
+Generates a public/private key pair with the given policy.
+
+The argument to callback is a public key which serves as an identifier 
+for the key pair. The public key can be passed into calls to 
+encrypt/decrypt, sign/verify, etc. to perform crypto operations.
+
+window.crypto.getPolicy(pk, callback)
+-----
+Retrieves the policy associated with the given public key.
+
+The argument to callback is the policy object.
+
+window.crypto.getWrappedKeyPair(pk, callback)
+-----
+Retrieves the keypair that pk specifies. The keypair includes the secret 
+key and associated policy. The policy is signed with the vTPM master key,
+and the secret key is encrypted and signed with the master key.
+
+The argument to callback is an object that contained the wrapped keypair 
+and the associated public key. 
+The wrappedSk property of this object can be passed to 
+window.crypto.installKeyPair to import the keypair into the vTPM.
+
+window.crypto.evictKeyPair(pk, callback)
+-----
+Removes the keypair specified by pk from the vTPM's localStorage.
+
+callback takes no arguments.
+
+window.crypto.installKeyPair(pk, wrappedSk, callback)
+-----
+Installs the given keypair in the vTPM, provided that the secret key is 
+correctly wrapped in the vTPM's msater key.
+
+callback takes no arguments.
+
+window.crypto.encrypt(pk, data, callback)
+-----
+data is a string. Encrypts data under the given public key.
+
+The argument to callback is a ciphertext object that can be passed 
+to window.crypto.decrypt, along with pk, to decrypt.
+
+window.crypto.decrypt(pk, ciphertext, callback)
+-----
+Decrypts the given ciphertext with the secret key associated with 
+pk.
+
+The argument to callback is an object pt. pt.valid indicates whether 
+the decryption was successful, and pt.data contains the plaintext string.
+
+window.crypto.sign(pk, data, callback)
+-----
+Uses the secret key associated with pk to sign the data. data is a string.
+
+The argument to callback is a JSON object sig. sig.data contains the actual 
+signature. Pass sig.data to window.crypto.verify to verify a signature.
+(Note: this should be changed so that verify takes the whole sig object,
+not sig.data.)
+
+window.crypto.verify(pk, signature, data, callback)
+-----
+Verifies that signature is valid for the public key pk on the string data.
+
+The callback takes a single boolean argument, which is true if the signature 
+was valid.
+
+window.crypto.signcrypt(rpk, spk, data, callback)
+-----
+Signcrypts the string data. The secret key associated with spk is used for 
+signing, and the public key rpk is used for encrypting.
+
+The argument to callback is a ciphertext object, which can be passed to
+window.crypto.verifydecrypt.
+
+window.crypto.verifydecrypt(rpk, spk, ct, callback)
+-----
+Verifies and decrypts the ciphertext object ct. The secret key associated 
+with rpk is used for decrypting, and the public key spk for verifying.
+
+The argument to callback is a string plaintext. The string is empty if
+the decryption or verification failed.
+(Note: this needs to be made consistent with window.crypto.decrypt, 
+where the plaintext object has a valid field.)
+
+window.crypto.certifyPublicKey(signingPk, targetPk, callbac, 
+  [secureUIConfirm, secureUIDeny])
+-----
+Uses signingPk to certify targetPk. Requires secure UI approval from the 
+user. The optional arguments secureUIConfirm and secureUIDeny are messages 
+to show to the user in the secure UI to confirm or deny the certification. 
+Use "{0}" or "{1}" in these messages as placeholders for the origins of the 
+signing and target keys.
+
+The argument to callback is a certificate object. This object can be passed 
+to window.crypto.verifyPublicKeyCert for verification.
+
+window.crypto.verifyPublicKeyCert(verifyPk, targetPk, cert, callback)
+-----
+Uses verifyPk to verify the certificate for targetPk.
+
+The argument to callback is a boolean value indicating whether the 
+certificate verified.
+
+window.crypto.setVTPMParent(elem)
+-----
+Relocates the VTPM to be a child of the given DOM element. Used for placing 
+the secure UI. (For example, elem might be a div that floats at the top of 
+the page and which is only visible when the user page receives a 
+secureUIVisible event.)
+
+This method can ONLY be called before any other operations.
+
+window.crypto.getVTPM()
+-----
+Returns a reference to the VTPM iframe.
