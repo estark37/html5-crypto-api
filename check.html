@@ -22,187 +22,202 @@ limitations under the License.
 <script src="src/vtpm_user.js" type="text/javascript"></script>
 <script type="text/javascript">
 
+/* jslint maxlen: 80, indent: 2*/
+
 /*
 * This isn't a real test suite; it just runs through all the vTPM
-* operations.
+* operations. See README for instructions on how to run more thorough
+* tests.
 */
 
-if (window.document.addEventListener) {
-  window.document.addEventListener("secureUIVisible", onShowSecureUI, true);
-  window.document.addEventListener("secureUIInvisible", onHideSecureUI, true);
-} else if (window.attachEvent) {
-  window.attachEvent("secureUIVisible", onShowSecureUI);
-  window.attachEvent("secureUIInvisible", onHideSecureUI);
-}
+var vtpmCheck = (function () {
+  "use strict";
 
-var mypk;
-var wrapped;
-var myvtpm;
-
-
-function onShowSecureUI() {
-  myvtpm.style.display = "none";
-  myvtpm.style.borderWidth = "0";
-  myvtpm.style.height = "40";
-  myvtpm.style.scrolling = "no";
-  document.getElementById("sigprompt").style.display="block";
-  myvtpm.width = "100%";
-  //vtpm.style.position = "absolute";
-  //vtpm.style.top = "0px";
-  myvtpm.style.display = "block";
-}
-
-function onHideSecureUI() {
-  document.getElementById("sigprompt").style.display="none";
-  myvtpm.style.display = "none";
-}
-
-function updateStatus(msg) {
-  document.getElementById("status").innerHTML = msg;
-}
-
-function onReady(vtpm) {
-  console.log("vtpm is ready to go!");
-  
-  myvtpm = vtpm;
-  
-  var startDate = new Date();
-  var endDate = new Date();
-  endDate.setMinutes(endDate.getMinutes() + 60);
-  var keyUsage = vtpmKeyPolicy.usage.dataEncipherment | vtpmKeyPolicy.usage.digitalSignature | vtpmKeyPolicy.usage.keyCertSign | vtpmKeyPolicy.usage.requireSecureUIOnSigs;
-//  var keyUsage =vtpmKeyPolicy.usage.keyEncipherment;
-  window.crypto.generatePolicy(startDate, endDate, keyUsage, onPolicyGen);
-}
-
-function onPolicyGen(policy) {
-  console.log("policy generated");
-  updateStatus("Generating key pair...");
-  window.crypto.generateKeyPair(policy, onKeyPairGen);
-}
-
-function onKeyPairGen(pk) {
-  console.log("key pair generated");
-  console.log(pk);
-  mypk = pk;
-  window.crypto.getPolicy(mypk, onGetPolicy);
-}
-
-function onGetPolicy(policy) {
-  console.log("policy: " + JSON.stringify(policy));
-  updateStatus('Encrypting "test"...');
-  window.crypto.encrypt(mypk, "test", onEncrypt);
-}
-
-function onEncrypt(ct) {
-  console.log("ct: " + JSON.stringify(ct));
-  updateStatus("Decrypting ciphertext...");
-  window.crypto.decrypt(mypk, ct, onDecrypt);
-}
-
-function onDecrypt(pt) {
-  console.log("pt: " + JSON.stringify(pt));
-  if (pt.valid) {
-    updateStatus('Decrypted to get "' + pt.data + '"');
-    window.crypto.getWrappedKeyPair(mypk, onGetWrappedKeyPair);
-  } else updateStatus("Decryption failed!");
-}
-
-function onGetWrappedKeyPair(wrappedPkSk) {
-  wrapped = wrappedPkSk;
-  console.log("wrapped keypair: " + JSON.stringify(wrappedPkSk));
-  updateStatus('Got wrapped key pair');
-  // now evict it and install it
-  window.crypto.evictKeyPair(mypk, onFirstEvict);
-}
-
-function onFirstEvict() {
-  updateStatus("Key pair evicted");
-  window.crypto.installKeyPair(mypk, wrapped.wrappedSk, onInstall);
-}
-
-function onInstall() {
-  updateStatus("Key pair installed");
-  window.crypto.sign(mypk, "test sign()", onSign);
-  // a second call to sign() tests secureUI queuing
-  window.crypto.sign(mypk, "test2", onSign2);
-}
-
-function onSign(sig) {
-  console.log("signature: " + JSON.stringify(sig.data));
-  if (sig.error) {
-    updateStatus("No signature.");
-  } else {
-    updateStatus("Verifying signature...");
-    window.crypto.verify(mypk, sig.data, "test sign()", onVerify);
+  if (window.document.addEventListener) {
+    window.document.addEventListener("secureUIVisible", onShowSecureUI, true);
+    window.document.addEventListener("secureUIInvisible", onHideSecureUI, true);
+  } else if (window.attachEvent) {
+    window.attachEvent("secureUIVisible", onShowSecureUI);
+    window.attachEvent("secureUIInvisible", onHideSecureUI);
   }
-}
 
-function onSign2(sig) {
-  console.log("got second signature");
-}
+  var mypk = null,
+      wrapped = null,
+      myvtpm = null;
 
-function onVerify(verify) {
-  if (verify) {
-    updateStatus("Valid signature");
-    window.crypto.signcrypt(mypk, mypk, "test signcrypt()", onSigncrypt);
-  } else updateStatus("Signature invalid!");
-}
 
-function onSigncrypt(ct) {
-  if (!ct.error) {
-    console.log("signcryption ct: " + JSON.stringify(ct));
-    updateStatus("Verifying and decrypting...");
-    window.crypto.verifydecrypt(mypk, mypk, ct, onVerifydecrypt);
-  } else {
-    updateStatus("No signcryption.");
+  function onShowSecureUI() {
+    myvtpm.style.display = "none";
+    myvtpm.style.borderWidth = "0";
+    myvtpm.style.height = "40";
+    myvtpm.style.scrolling = "no";
+    document.getElementById("sigprompt").style.display="block";
+    myvtpm.width = "100%";
+    myvtpm.style.display = "block";
   }
-}
 
-function onVerifydecrypt(pt) {
-  if (pt != "") {
-    updateStatus("Verified and decrypted to get \"" + pt + "\"");
-    updateStatus("Certifying public key...");
-    window.crypto.certifyPublicKey(mypk, mypk, onCertify, "yes, {0} {1}", "no!");
-  } else updateStatus("Verifydecrypt failed!");
-}
+  function onHideSecureUI() {
+    document.getElementById("sigprompt").style.display="none";
+    myvtpm.style.display = "none";
+  }
 
-function onCertify(cert) {
-  console.log("pk cert: " + JSON.stringify(cert));
-  updateStatus("Verifying public key cert...");
-  window.crypto.verifyPublicKeyCert(mypk, mypk, cert, onVerifyCert);
-}
+  function updateStatus(msg) {
+    document.getElementById("status").innerHTML = msg;
+  }
 
-function onVerifyCert(verify) {
-  if (verify) {
-    updateStatus("Valid certificate");
-    done();
-  } else updateStatus("Invalid public key certificate!");
-}
+  function onReady(vtpm) {
+    var startDate = new Date(),
+        endDate = new Date(),
+        keyUsage = vtpmKeyPolicy.usage.dataEncipherment | 
+                   vtpmKeyPolicy.usage.digitalSignature | 
+                   vtpmKeyPolicy.usage.keyCertSign | 
+                   vtpmKeyPolicy.usage.requireSecureUIOnSigs;
 
-function done() {
-    updateStatus("Evicting key pair...");
-    window.crypto.evictKeyPair(mypk, onEvict);
-}
+    console.log("vtpm is ready to go!");  
+    myvtpm = vtpm;
+  
+    endDate.setMinutes(endDate.getMinutes() + 60);
+    window.crypto.generatePolicy(startDate, endDate, keyUsage, onPolicyGen);
+  }
 
-function onEvict() {
-  console.log("key pair evicted");
-  updateStatus("Done!");
-}
+  function onPolicyGen(policy) {
+    console.log("policy generated");
+    updateStatus("Generating key pair...");
+    window.crypto.generateKeyPair(policy, onKeyPairGen);
+  }
 
-function onError(msg) {
-  document.getElementById("error").innerHTML = msg;
-}
+  function onKeyPairGen(pk) {
+    console.log("key pair generated");
+    console.log(pk);
+    mypk = pk;
+    window.crypto.getPolicy(mypk, onGetPolicy);
+  }
 
-function go() {
-  window.crypto.setVTPMParent(document.getElementById("vtpm_wrapper"));
-  //window.crypto.init(document.getElementById("vtpm_wrapper"), onReady, onError);
-  onReady(window.crypto.getVTPM());
-};
+  function onGetPolicy(policy) {
+    console.log("policy: " + JSON.stringify(policy));
+    updateStatus('Encrypting "test"...');
+    window.crypto.encrypt(mypk, "test", onEncrypt);
+  }
+
+  function onEncrypt(ct) {
+    console.log("ct: " + JSON.stringify(ct));
+    updateStatus("Decrypting ciphertext...");
+    window.crypto.decrypt(mypk, ct, onDecrypt);
+  }
+
+  function onDecrypt(pt) {
+    console.log("pt: " + JSON.stringify(pt));
+    if (pt.valid) {
+      updateStatus('Decrypted to get "' + pt.data + '"');
+      window.crypto.getWrappedKeyPair(mypk, onGetWrappedKeyPair);
+    } else updateStatus("Decryption failed!");
+  }
+
+  function onGetWrappedKeyPair(wrappedPkSk) {
+    wrapped = wrappedPkSk;
+    console.log("wrapped keypair: " + JSON.stringify(wrappedPkSk));
+    updateStatus('Got wrapped key pair');
+    // now evict it and install it
+    window.crypto.evictKeyPair(mypk, onFirstEvict);
+  }
+
+  function onFirstEvict() {
+    updateStatus("Key pair evicted");
+    window.crypto.installKeyPair(mypk, wrapped.wrappedSk, onInstall);
+  }
+
+  function onInstall() {
+    updateStatus("Key pair installed");
+    window.crypto.sign(mypk, "test sign()", onSign);
+    // a second call to sign() tests secureUI queuing
+    window.crypto.sign(mypk, "test2", onSign2);
+  }
+
+  function onSign(sig) {
+    console.log("signature: " + JSON.stringify(sig.data));
+    if (sig.error) {
+      updateStatus("No signature.");
+    } else {
+      updateStatus("Verifying signature...");
+      window.crypto.verify(mypk, sig.data, "test sign()", onVerify);
+    }
+  }
+
+  function onSign2(sig) {
+    console.log("got second signature");
+  }
+
+  function onVerify(verify) {
+    if (verify) {
+      updateStatus("Valid signature");
+      window.crypto.signcrypt(mypk, mypk, "test signcrypt()", onSigncrypt);
+    } else {
+      updateStatus("Signature invalid!");
+    }
+  }
+
+  function onSigncrypt(ct) {
+    if (!ct.error) {
+      console.log("signcryption ct: " + JSON.stringify(ct));
+      updateStatus("Verifying and decrypting...");
+      window.crypto.verifydecrypt(mypk, mypk, ct, onVerifydecrypt);
+    } else {
+      updateStatus("No signcryption.");
+    }
+  }
+
+  function onVerifydecrypt(pt) {
+    if (pt != "") {
+      updateStatus("Verified and decrypted to get \"" + pt + "\"");
+      updateStatus("Certifying public key...");
+      window.crypto.certifyPublicKey(mypk, mypk, onCertify, "yes, {0} {1}", "no!");
+    } else {
+      updateStatus("Verifydecrypt failed!");
+    }
+  }
+
+  function onCertify(cert) {
+    console.log("pk cert: " + JSON.stringify(cert));
+    updateStatus("Verifying public key cert...");
+    window.crypto.verifyPublicKeyCert(mypk, mypk, cert, onVerifyCert);
+  }
+
+  function onVerifyCert(verify) {
+    if (verify) {
+      updateStatus("Valid certificate");
+      done();
+    } else {
+      updateStatus("Invalid public key certificate!");
+    }
+  }
+
+  function done() {
+      updateStatus("Evicting key pair...");
+      window.crypto.evictKeyPair(mypk, onEvict);
+  }
+
+  function onEvict() {
+    console.log("key pair evicted");
+    updateStatus("Done!");
+  }
+
+  function onError(msg) {
+    document.getElementById("error").innerHTML = msg;
+  }
+
+  return {
+    go: function () {
+      window.crypto.setVTPMParent(document.getElementById("vtpm_wrapper"));
+      onReady(window.crypto.getVTPM());
+    }
+  }
+
+}());
 
 
 
 </script>
-<body onload="go()">
+<body onload="vtpmCheck.go()">
 <div id="sigprompt" style="width:100%; background: #9f9f9f; border: 0; position: fixed; left: 0px; top: 0px; display: none;">
 <div><span>Are you sure?</span>
 <div id="vtpm_wrapper"></div>
