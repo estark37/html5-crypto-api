@@ -220,7 +220,8 @@ var foo = window.crypto;
     } else if (status === vtpmComm.user.ST_HIDE_SECURE_UI) {
       hideSecureUI(secureUI);
     } else {
-      if (data.cb !== null && data.cb !== undefined
+      if (data.cb !== null && data.cb !== undefined 
+          && callbacks[data.cb] !== undefined
           && typeof callbacks[data.cb][0] === "function") {
         callbacks[data.cb][0](data.respData);
         delete callbacks[data.cb];

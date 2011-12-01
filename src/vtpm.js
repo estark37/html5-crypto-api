@@ -123,6 +123,26 @@ limitations under the License.
   }
 
   /*
+   * If a worker operation has a callback, then the data for a VTPM operation 
+   * has an array of two callbacks. The worker callback is the second one.
+   */
+  function removeWorkerCallback(cbs) {
+    var cb = null;
+    if (cbs instanceof Array) {
+      cb = cbs[0];
+    }
+    return cb;
+  }
+
+  function getWorkerCallback(cbs) {
+    var cbNew = null;
+    if (cbs instanceof Array) {
+      cbNew = cbs[1];
+    }
+    return cbNew;
+  }
+
+  /*
    * Asks the worker to do some computation, via a postMessage
    * to a Worker thread, or to an iframe when Workers aren't
    * available.
@@ -204,13 +224,13 @@ limitations under the License.
     if (resp && resp.cb instanceof Array &&
         status !== vtpmComm.worker.ST_NEED_SECURE_UI) {
       // Pop off the second element to call right now
-      cb = resp.cb[1];
+      cb = getWorkerCallback(resp.cb);
       /*
        * Transform resp.cb back into just the index for the user callback. If
        * workerCbs[cb] returns to the vtpm via postUserMessage, vtpm_user 
        * expects to see a single callback index, not an array.
        */
-      resp.cb = resp.cb[0];
+      resp.cb = removeWorkerCallback(resp.cb);
       workerCbs[cb](resp, status);
       delete workerCbs[cb];
     } else {
@@ -890,6 +910,7 @@ limitations under the License.
       if (confirm) {
         tryWorker(cmd, opData);
       } else {
+        denyData.cb = removeWorkerCallback(denyData.cb);
         onFinish(denyData);
       }
     },
